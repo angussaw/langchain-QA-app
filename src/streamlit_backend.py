@@ -4,41 +4,14 @@ import os
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
+from langchain.llms import GPT4All, OpenAI
 from langchain.chains import ConversationChain, RetrievalQA
-from langchain.llms import OpenAI
-import yaml
+from langchain.chains.question_answering import load_qa_chain
+
 from tempfile import NamedTemporaryFile
 import shutil
-
-
-import logging
-
-# logger = logging.getLogger()
-
-# def setup_logging(
-#     logging_config_path="./conf/logging.yaml", default_level=logging.INFO
-# ):
-#     """Set up configuration for logging utilities.
-
-#     Args:
-#         logging_config_path (str, optional): Path to YAML file containing configuration for
-#                                              Python logger. Defaults to "./conf/base/logging.yml".
-#         default_level (_type_, optional): logging object. Defaults to logging.INFO.
-#     """
-#     try:
-#         with open(logging_config_path, "rt") as file:
-#             log_config = yaml.safe_load(file.read())
-#             logging.config.dictConfig(log_config)
-
-#     except Exception as error:
-#         logging.basicConfig(
-#             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-#             level=default_level,
-#         )
-#         logger.info(error)
-#         logger.info("Logging config file is not found. Basic config is being used.")
-
 
 def load_and_split_doc(filename: str, 
                        chunk_size: int, 
@@ -68,80 +41,93 @@ def load_and_split_doc(filename: str,
     return documents
 
 
-def create_and_persist_vector_database(documents, collection_name: str, openai_api_key: str, persist_directory: str = "chroma_db"):
+def create_and_persist_vector_database(documents, collection_name: str, persist_directory: str = "chroma_db"):
     """_summary_
 
     Args:
         documents (_type_): _description_
         collection_name (str): _description_
-        persist_directory (str): _description_
+        persist_directory (str, optional): _description_. Defaults to "chroma_db".
     """
-    embedding_function = OpenAIEmbeddings(openai_api_key = openai_api_key)
+
+    embedding_function = HuggingFaceEmbeddings()
 
     database = Chroma.from_documents(documents,
-                                    embedding = embedding_function,
-                                    collection_name = collection_name,
-                                    persist_directory = f"{persist_directory}/{collection_name}")
+                                        embedding = embedding_function,
+                                        collection_name = collection_name,
+                                        persist_directory = f"{persist_directory}/{collection_name}")
     database.persist()
+        
 
 
-def initialize_vector_database(collection_name: str, openai_api_key: str, persist_directory: str = "chroma_db"):
+def initialize_vector_database(collection_name: str, search_type: str = "similarity", fetch_k: int = 4, persist_directory: str = "chroma_db"):
     """_summary_
 
     Args:
         collection_name (str): _description_
-        persist_directory (str): _description_
+        search_type (str, optional): _description_. Defaults to "similarity".
+        fetch_k (int, optional): _description_. Defaults to 4.
+        persist_directory (str, optional): _description_. Defaults to "chroma_db".
 
     Returns:
         _type_: _description_
     """
-    embedding_function = OpenAIEmbeddings(openai_api_key = openai_api_key)
 
-    database = Chroma(collection_name = collection_name,
-                      persist_directory=f"{persist_directory}/{collection_name}", 
-                      embedding_function=embedding_function)
+    embedding_function = HuggingFaceEmbeddings()
+
+    database_search = Chroma(collection_name = collection_name,
+                             persist_directory=f"{persist_directory}/{collection_name}", 
+                             embedding_function=embedding_function).as_retriever(search_type=search_type, search_kwargs={"k":fetch_k})
     
-    return database
+    return database_search
 
 
-def load_retrievalQA_chain(db, openai_api_key: str, temperature: float, search_type: str = "similarity", fetch_k: int = 4):
+def load_QA_chain(openai_api_key: str, temperature: float):
     """_summary_
 
     Args:
-        db (_type_): _description_
+        openai_api_key (str): _description_
         temperature (float): _description_
-        search_type (str, optional): _description_. Defaults to "similarity".
-        fetch_k (int, optional): _description_. Defaults to 4.
 
     Returns:
         _type_: _description_
     """
+    # "gpt-3.5-turbo" is the default model
+
     llm = OpenAI(temperature = temperature, openai_api_key = openai_api_key)
-    chain = RetrievalQA.from_chain_type(chain_type = "stuff",
-                                        llm = llm,
-                                        retriever = db.as_retriever(search_type = search_type, search_kwargs = {"k": fetch_k}))
+    chain = load_qa_chain(llm=llm,
+                          chain_type="map_rerank", 
+                          return_intermediate_steps=True)
     return chain
 
-def run_retrievalQA_chain(chain, query: str):
+def run_QA_chain(chain, database_search, query: str):
     """_summary_
 
     Args:
         chain (_type_): _description_
+        database_search (_type_): _description_
         query (str): _description_
+
+    Returns:
+        _type_: _description_
     """
 
-    result = chain({"query": query})
+    docs = database_search.get_relevant_documents(query)
+    result = chain({"input_documents": docs, "question": query}, return_only_outputs=True)
 
-    return result["result"]
+    return result
 
 
-def load_PDF(uploaded_file, collection_name: str, openai_api_key: str, split_params: dict):
+def load_PDF(uploaded_file, collection_name: str, split_params: dict):
     """_summary_
 
     Args:
         uploaded_file (_type_): _description_
-        openai_api_key (str): _description_
+        collection_name (str): _description_
         split_params (dict): _description_
+
+    Returns:
+        _type_: _description_
     """
     filename = os.path.splitext(uploaded_file.name)[0]
 
@@ -156,8 +142,7 @@ def load_PDF(uploaded_file, collection_name: str, openai_api_key: str, split_par
     no_of_documents = len(documents)
         
     create_and_persist_vector_database(documents = documents,
-                                       collection_name = collection_name,
-                                       openai_api_key = openai_api_key)
+                                       collection_name = collection_name)
 
     metadata = {"filename": filename,
                 "collection name": collection_name,
@@ -177,3 +162,33 @@ def remove_vector_database(collection_name: str, persist_directory: str = "chrom
         persist_directory (str, optional): _description_. Defaults to "chroma_db".
     """
     shutil.rmtree(f"{persist_directory}/{collection_name}")
+
+
+def validate_load_PDF(generated_dbs, new_collection_name: str, split_params: dict):
+    """_summary_
+
+    Args:
+        generated_dbs (_type_): _description_
+        new_collection_name (str): _description_
+        split_params (dict): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    messages = []
+
+    existing_collection_names = [db["collection name"] for db in generated_dbs]
+
+    if new_collection_name in existing_collection_names:
+        messages.append("Collection name already exists")
+
+    if split_params["chunk_size"] <= split_params["chunk_overlap"]:
+        messages.append("Chunk size must be greater than chunk overlap")
+
+    return messages
+
+    
+
+
+
+
