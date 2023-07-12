@@ -84,10 +84,10 @@ def main():
                 
         generated_db_df = pd.DataFrame(st.session_state["generated_dbs"])
         gb = GridOptionsBuilder.from_dataframe(generated_db_df)
-        gb.configure_selection(selection_mode="single", use_checkbox=True)
+        gb.configure_selection(selection_mode="multiple", use_checkbox=True)
         gb_grid_options = gb.build()
         st.write("Select a loaded PDF file to query:")
-        response = AgGrid(generated_db_df.head(2),gridOptions = gb_grid_options, use_checkbox=True)
+        response = AgGrid(generated_db_df.head(10),gridOptions = gb_grid_options, use_checkbox=True)
 
     with st.sidebar:
         uploaded_file = st.file_uploader('Upload a PDF file', type='pdf')
@@ -130,9 +130,9 @@ def main():
                 st.experimental_rerun()
 
     if st.session_state["generated_dbs"] != []:
-        selected_document = response['selected_rows']
+        selected_documents = response['selected_rows']
 
-        if selected_document:
+        if selected_documents:
             delete_document = st.button("Delete document")
 
             col1, col2 = st.columns(2, gap="large")
@@ -149,32 +149,35 @@ def main():
                 fetch_k = st.slider('Select k documents', 1, 7, 3, help = tooltips["select_k_documents"])
 
             if submitted_query and openai_api_key.startswith('sk-'):
-                with st.spinner('Retrieving vector store...'):
-                    database_search = backend.initialize_vector_database(collection_name = selected_document[0]["collection name"],
-                                                                         search_type = search_type,
-                                                                         fetch_k = fetch_k)
+                with st.spinner('Retrieving vector stores...'):
+                    collection_names = [document["collection name"] for document in selected_documents]
+                    descriptions = [document["description"] for document in selected_documents]
+
+                    vector_databases = backend.initialize_vector_databases(collection_names = collection_names,
+                                                                           search_type = search_type,
+                                                                           fetch_k = fetch_k)
                     
-                    QA_chain, llm = backend.load_retrieval_QA_chain(openai_api_key = openai_api_key,
+                    QA_chains, llm = backend.load_retrieval_QA_chains(openai_api_key = openai_api_key,
                                                                     temperature = temperature,
-                                                                    retriever=database_search)
+                                                                    retrievers=vector_databases)
                     
-                with st.spinner('Initializing agent and generating response...'):
-                    agent = backend.initialize_QA_agent(collection_name = selected_document[0]["collection name"],
-                                                        description = selected_document[0]["description"],
-                                                        chain = QA_chain,
-                                                        llm = llm)
+                with st.spinner('Initializing agents and generating response...'):
+                    agent = backend.initialize_QA_agents(collection_names = collection_names,
+                                                         descriptions = descriptions,
+                                                         chains = QA_chains,
+                                                         llm = llm)
                     
                     result = agent({"input":query_text})
 
                     st.write(result["intermediate_steps"])
                     
             if delete_document:
-                collection_name_to_delete = selected_document[0]["collection name"]
+                collection_names_to_delete = [document["collection name"] for document in selected_documents]
 
-                backend.remove_vector_database(collection_name = collection_name_to_delete)
+                backend.remove_vector_databases(collection_names = collection_names_to_delete)
 
-                index_to_remove = [i for i in range(len(st.session_state.generated_dbs)) if st.session_state.generated_dbs[i]["collection name"] == collection_name_to_delete][0]
-                st.session_state.generated_dbs.pop(index_to_remove)
+                indices_to_remove = [i for i in range(len(st.session_state.generated_dbs)) if st.session_state.generated_dbs[i]["collection name"] in collection_names_to_delete]
+                st.session_state.generated_dbs = [db for db in st.session_state.generated_dbs if st.session_state.generated_dbs.index(db) not in indices_to_remove]
                 st.experimental_rerun()
 
 if __name__ == "__main__":

@@ -85,6 +85,31 @@ def initialize_vector_database(collection_name: str, search_type: str = "similar
     
     return database_search
 
+def initialize_vector_databases(collection_names: str, search_type: str = "similarity", fetch_k: int = 4, persist_directory: str = "chroma_db") -> list:
+    """_summary_
+
+    Args:
+        collection_names (str): _description_
+        search_type (str, optional): _description_. Defaults to "similarity".
+        fetch_k (int, optional): _description_. Defaults to 4.
+        persist_directory (str, optional): _description_. Defaults to "chroma_db".
+
+    Returns:
+        list: _description_
+    """
+    vector_databases = []
+
+    embedding_function = HuggingFaceEmbeddings()
+
+    for collection_name in collection_names:
+        database_search = Chroma(collection_name = collection_name,
+                                persist_directory=f"{persist_directory}/{collection_name}", 
+                                embedding_function=embedding_function).as_retriever(search_type=search_type, search_kwargs={"k":fetch_k})
+        
+        vector_databases.append(database_search)
+    
+    return vector_databases
+
 
 def load_QA_chain(openai_api_key: str, temperature: float):
     """_summary_
@@ -123,6 +148,30 @@ def load_retrieval_QA_chain(openai_api_key: str, temperature: float, retriever):
                                         retriever = retriever)
 
     return chain, llm
+
+def load_retrieval_QA_chains(openai_api_key: str, temperature: float, retrievers):
+    """_summary_
+
+    Args:
+        openai_api_key (str): _description_
+        temperature (float): _description_
+        retrievers (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    # "gpt-3.5-turbo" is the default model
+    chains = []
+
+    llm = OpenAI(temperature = temperature, openai_api_key = openai_api_key)
+
+    for retriever in retrievers:
+        chain = RetrievalQA.from_chain_type(llm = llm,
+                                            chain_type = "stuff", # chain_type: specifying how the RetrievalQA should pass the chunks into LLM
+                                            retriever = retriever)
+        chains.append(chain)
+
+    return chains, llm
 
 def run_QA_chain(chain, database_search, query: str):
     """_summary_
@@ -186,6 +235,16 @@ def remove_vector_database(collection_name: str, persist_directory: str = "chrom
     """
     shutil.rmtree(f"{persist_directory}/{collection_name}")
 
+def remove_vector_databases(collection_names: list, persist_directory: str = "chroma_db"):
+    """_summary_
+
+    Args:
+        collection_names (list): _description_
+        persist_directory (str, optional): _description_. Defaults to "chroma_db".
+    """
+    for collection_name in collection_names:
+        shutil.rmtree(f"{persist_directory}/{collection_name}")
+
 
 def initialize_QA_agent(collection_name: str, description: str, chain, llm):
     """_summary_
@@ -201,8 +260,38 @@ def initialize_QA_agent(collection_name: str, description: str, chain, llm):
     """
     tools = [Tool(name=collection_name,
                   func=chain.run,
-                  description=description,
-                  return_direct=True)]
+                  description=description)]
+
+    agent = initialize_agent(tools,
+                             llm,
+                             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                             verbose=True,
+                             return_intermediate_steps=True)
+
+    return agent
+
+def initialize_QA_agents(collection_names: list, descriptions: list, chains: list, llm):
+    """_summary_
+
+    Args:
+        collection_names (str): _description_
+        descriptions (str): _description_
+        chains (_type_): _description_
+        llm (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    tools = []
+
+    for i in range(len(chains)):
+
+        tool = Tool(name=collection_names[i],
+                    func=chains[i].run,
+                    description=descriptions[i],
+                    return_direct=True)
+        
+        tools.append(tool)
 
     agent = initialize_agent(tools,
                              llm,
