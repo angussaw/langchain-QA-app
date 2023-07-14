@@ -146,7 +146,6 @@ def main():
 
             with col2:
                 temperature = st.slider('Select temperature', 0.0, 1.0, 0.7, help = tooltips["temperature"])
-                search_type = st.selectbox('Select search type', ('similarity', 'mmr'))
                 fetch_k = st.slider('Select k documents', 1, 7, 3, help = tooltips["select_k_documents"])
 
             if submitted_query and openai_api_key.startswith('sk-'):
@@ -155,7 +154,6 @@ def main():
                     descriptions = [document["description"] for document in selected_documents]
 
                     vector_databases = backend.initialize_vector_databases(collection_names = collection_names,
-                                                                           search_type = search_type,
                                                                            fetch_k = fetch_k)
                     
                     QA_chains, llm = backend.load_retrieval_QA_chains(openai_api_key = openai_api_key,
@@ -167,6 +165,8 @@ def main():
                                                          descriptions = descriptions,
                                                          chains = QA_chains,
                                                          llm = llm)
+                    
+                    st.write(agent.agent.llm_chain.prompt.template)
                     
                     result = agent({"input":query_text})
 

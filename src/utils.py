@@ -35,7 +35,8 @@ def load_and_split_doc(filename: str,
     documents = loader.load()
 
     if split == "CharacterTextSplitter":
-        text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap) 
+        text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+                                              separator = " ", length_function = len) 
     
     elif split == "RecursiveCharacterTextSplitter":
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap) 
@@ -63,12 +64,11 @@ def create_and_persist_vector_database(documents, collection_name: str, persist_
     database.persist()
 
 
-def initialize_vector_databases(collection_names: str, search_type: str = "similarity", fetch_k: int = 4, persist_directory: str = "chroma_db") -> list:
+def initialize_vector_databases(collection_names: str, fetch_k: int = 4, persist_directory: str = "chroma_db") -> list:
     """_summary_
 
     Args:
         collection_names (str): _description_
-        search_type (str, optional): _description_. Defaults to "similarity".
         fetch_k (int, optional): _description_. Defaults to 4.
         persist_directory (str, optional): _description_. Defaults to "chroma_db".
 
@@ -82,7 +82,8 @@ def initialize_vector_databases(collection_names: str, search_type: str = "simil
     for collection_name in collection_names:
         database_search = Chroma(collection_name = collection_name,
                                 persist_directory=f"{persist_directory}/{collection_name}", 
-                                embedding_function=embedding_function).as_retriever(search_type=search_type, search_kwargs={"k":fetch_k})
+                                embedding_function=embedding_function).as_retriever(search_type="similarity", 
+                                                                                    search_kwargs={"k":fetch_k})
         
         vector_databases.append(database_search)
     
