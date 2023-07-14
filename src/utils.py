@@ -13,6 +13,7 @@ from langchain.chains import RetrievalQA
 
 from langchain.agents import initialize_agent, Tool, AgentExecutor
 from langchain.agents import AgentType
+from langchain.memory import ConversationBufferMemory
 
 from tempfile import NamedTemporaryFile
 import shutil
@@ -161,7 +162,7 @@ def remove_vector_databases(collection_names: list, persist_directory: str = "ch
         shutil.rmtree(f"{persist_directory}/{collection_name}")
 
 
-def initialize_QA_agents(collection_names: list, descriptions: list, chains: list, llm: OpenAI) -> AgentExecutor:
+def initialize_zeroshot_react_agent(collection_names: list, descriptions: list, chains: list, llm: OpenAI) -> AgentExecutor:
     """_summary_
 
     Args:
@@ -191,3 +192,41 @@ def initialize_QA_agents(collection_names: list, descriptions: list, chains: lis
                              return_intermediate_steps=True)
 
     return agent
+
+def initialize_conversational_react_agent(collection_names: list, descriptions: list, chains: list, llm: OpenAI) -> AgentExecutor:
+    """_summary_
+
+    Args:
+        collection_names (list): _description_
+        descriptions (list): _description_
+        chains (list): _description_
+        llm (OpenAI): _description_
+
+    Returns:
+        AgentExecutor: _description_
+    """
+    tools = []
+    PREFIX = """You are an expert career coach, good at reviewing resumes."""
+    SUFFIX = """If you don't know the answer, say 'I dont know'."""
+
+    for i in range(len(chains)):
+
+        tool = Tool(name=collection_names[i],
+                    func=chains[i].run,
+                    description=descriptions[i],
+                    return_direct=True)
+        
+        tools.append(tool)
+
+    memory = ConversationBufferMemory(memory_key="chat_history")
+
+    agent = initialize_agent(tools, llm, 
+                             agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, 
+                             verbose=True, memory=memory,
+                                 agent_kwargs={'prefix':PREFIX})
+        # 'format_instructions':FORMAT_INSTRUCTIONS,
+        # 'suffix':SUFFIX
+
+    return agent
+
+

@@ -161,10 +161,10 @@ def main():
                                                                     retrievers=vector_databases)
                     
                 with st.spinner('Initializing agents and generating response...'):
-                    agent = backend.initialize_QA_agents(collection_names = collection_names,
-                                                         descriptions = descriptions,
-                                                         chains = QA_chains,
-                                                         llm = llm)
+                    agent = backend.initialize_zeroshot_react_agent(collection_names = collection_names,
+                                                                    descriptions = descriptions,
+                                                                    chains = QA_chains,
+                                                                    llm = llm)
                     
                     st.write(agent.agent.llm_chain.prompt.template)
                     

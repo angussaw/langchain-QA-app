@@ -1,5 +1,5 @@
 from . import utils
-from . import streamlit_app_demo
+from . import streamlit_app_qa_react
+from . import streamlit_app_conv_react
 from . import streamlit_app_local
-from . import streamlit_app
 from . import fast_api
