@@ -207,7 +207,6 @@ def initialize_conversational_react_agent(collection_names: list, descriptions: 
     """
     tools = []
     PREFIX = """You are an expert career coach, good at reviewing resumes."""
-    SUFFIX = """If you don't know the answer, say 'I dont know'."""
 
     for i in range(len(chains)):
 

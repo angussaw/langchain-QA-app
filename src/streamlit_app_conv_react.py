@@ -31,6 +31,15 @@ def validate_load_PDF(generated_dbs, new_collection_name: str, split_params: dic
 
     return messages
 
+@st.cache_data
+def convert_chat_history_to_csv(past, generated):
+    # IMPORTANT: Cache the conversion to prevent computation on every rerun
+    chat_history_df = pd.DataFrame()
+    chat_history_df["User"] = past
+    chat_history_df["Response"] = generated
+
+    return chat_history_df.to_csv().encode('utf-8')
+
 
 def main():
     """
@@ -39,7 +48,7 @@ def main():
     hide_default_format = """
         <style>
         .block-container {
-                    padding-top: 0.8rem;
+                    padding-top: 0.5rem;
                     padding-bottom: 0rem;
                     padding-left: 5rem;
                     padding-right: 5rem;
@@ -62,15 +71,15 @@ def main():
                 }
 
     # From here down is all the StreamLit UI.
-    st.set_page_config(page_title="PDF QA app",
-                    layout="wide")
+    st.set_page_config(page_title="Document conversation app",
+                       layout="wide")
     st.markdown(hide_default_format, unsafe_allow_html=True)
 
-    st.header("Question your PDFs!")
-    st.caption("Upload a new PDF file with a specified collection name and its description")
-    st.caption("Query existing PDF files by entering your question and OpenAI API key, and specifying the response parameters")
-    st.caption("The generated response will provide the answer along with the thoughts, actions, and observations underwent \n \
-               during its chain of thought reasoning under the ReAct framework.")
+    st.header("Converse with your PDFs!")
+    st.caption("1. Upload a new PDF file with a specified article name and its description")
+    st.caption("2. Select document(s) to converse with and enter OpenAI API key along with response parameters to generate conversation agent")
+    st.caption("3. Converse with your document(s) by entering your question!")
+    st.divider()
 
     if 'generated' not in st.session_state:
         st.session_state['generated'] = []
@@ -78,6 +87,8 @@ def main():
         st.session_state['past'] = []
     if 'agent' not in st.session_state:
         st.session_state['agent'] = None
+    if 'docs_selected' not in st.session_state:
+        st.session_state['docs_selected'] = []
 
     existing_chroma_paths = [f.path for f in os.scandir("chroma_db") if f.is_dir()]
     if len(existing_chroma_paths) == 0:
@@ -95,8 +106,8 @@ def main():
         gb = GridOptionsBuilder.from_dataframe(generated_db_df)
         gb.configure_selection(selection_mode="multiple", use_checkbox=True)
         gb_grid_options = gb.build()
-        st.write("Select loaded PDF file(s) to query:")
-        response = AgGrid(generated_db_df.head(10),gridOptions = gb_grid_options, use_checkbox=True)
+        st.caption("Select loaded PDF file(s) to converse with:")
+        response = AgGrid(generated_db_df.head(5),gridOptions = gb_grid_options, use_checkbox=True)
 
     with st.sidebar:
         uploaded_file = st.file_uploader('Upload a PDF file', type='pdf')
@@ -124,19 +135,20 @@ def main():
                 st.write(message)
 
         else:
-            with st.spinner('Loading PDF and creating vector store...'):
+            with st.sidebar:
+                with st.spinner('Loading PDF and creating vector store...'):
 
-                metadata = backend.load_PDF(uploaded_file = uploaded_file,
-                                            collection_name = collection_name,
-                                            description = description,
-                                            split_params = split_params)
+                    metadata = backend.load_PDF(uploaded_file = uploaded_file,
+                                                collection_name = collection_name,
+                                                description = description,
+                                                split_params = split_params)
 
-                with open(f"chroma_db/{collection_name}/metadata.json", "w") as fp:
-                    json.dump(metadata , fp) 
-                
-                st.session_state.generated_dbs.append(metadata)
-                st.write("PDF was loaded successfully")
-                st.experimental_rerun()
+                    with open(f"chroma_db/{collection_name}/metadata.json", "w") as fp:
+                        json.dump(metadata , fp) 
+                    
+                    st.session_state.generated_dbs.append(metadata)
+                    st.write("PDF was loaded successfully")
+                    st.experimental_rerun()
 
 
 
@@ -147,59 +159,82 @@ def main():
 
             delete_document = st.button("Delete document(s)")
 
-            col1, col2 = st.columns(2, gap="large")
+            if selected_documents != st.session_state["docs_selected"]:
+                st.session_state["docs_selected"] = selected_documents
+                st.session_state["agent"] = None
+                st.session_state['generated'] = []
+                st.session_state['past'] = []
 
-            with col1:
-                # query_text = st.text_input('Enter your question:')
-                # openai_api_key = st.text_input('OpenAI API Key', type='password')
-                # with st.form('myform2', clear_on_submit=True):
-                #     submitted_query = st.form_submit_button('Generate response', disabled=not(query_text and openai_api_key))
+            agent_tab, conv_tab = st.tabs(["Agent settings", "Chat conversation"])
+            with agent_tab:
+                col1, col2 = st.columns(2, gap="large")
+                with col1:
+                    st.caption("Set up the agent by inputting API key and response settings:")
+                    openai_api_key = st.text_input('OpenAI API key', type='password')
+                    temperature = st.slider('Select temperature', 0.0, 1.0, 0.7, help = tooltips["temperature"])
+                    fetch_k = st.slider('Select k documents', 1, 7, 3, help = tooltips["select_k_documents"])
+                    with st.form(key='my_form', clear_on_submit=True):
+                        create_agent = st.form_submit_button('Create agent', disabled=not(openai_api_key and not st.session_state['agent']))
 
-                openai_api_key = st.text_input('OpenAI API Key', type='password')
-                temperature = st.slider('Select temperature', 0.0, 1.0, 0.7, help = tooltips["temperature"])
-                fetch_k = st.slider('Select k documents', 1, 7, 3, help = tooltips["select_k_documents"])
-                with st.form(key='my_form', clear_on_submit=True):
-                    create_agent = st.form_submit_button('Create agent', disabled=not(openai_api_key and not st.session_state['agent']))
+                with col2:
+                    agent_container = st.container()
+                    with agent_container:
+                        if st.session_state['agent']:
+                            st.write("Agent successfully initialized with the following document(s):")
+                            for document in st.session_state["docs_selected"]:
+                                st.caption(f"- {document['filename']}.pdf")
+                            st.divider()
+                            st.write("Chat with selected document(s) in the conversation tab!")
+
+                if create_agent and openai_api_key.startswith('sk-') and not st.session_state['agent']:
+                    with st.spinner('Retrieving vector stores and initializing agent...'):
+                        # filenames = [document["filename"] for document in selected_documents]
+                        collection_names = [document["collection name"] for document in selected_documents]
+                        descriptions = [document["description"] for document in selected_documents]
+
+                        vector_databases = backend.initialize_vector_databases(collection_names = collection_names,
+                                                                            fetch_k = fetch_k)
+                        
+                        QA_chains, llm = backend.load_retrieval_QA_chains(openai_api_key = openai_api_key,
+                                                                        temperature = temperature,
+                                                                        retrievers=vector_databases)
+                        
+                        agent = backend.initialize_conversational_react_agent(collection_names = collection_names,
+                                                                            descriptions = descriptions,
+                                                                            chains = QA_chains,
+                                                                            llm = llm)
+
+                        st.session_state['agent'] = agent
+                        st.experimental_rerun()
+
+            with conv_tab:
+                col1, col2 = st.columns([6, 12], gap="large")
+                with col1:
+                    if st.session_state['agent']:
+                        st.caption("Conversation agent successfully initialized!")
+                    query_text = st.text_area("Input question to converse with document(s):", key='input', height=20)
+                    with st.form(key='my_form_2', clear_on_submit=True):
+                        submitted_query = st.form_submit_button('Send', disabled=not(query_text and st.session_state['agent']))
+                with col2:
+                    response_container = st.container()
+                    response_container.caption("Chat history")
+
+                if submitted_query:
+                    output = st.session_state['agent']({"input":query_text})["output"]
+                    st.session_state['generated'].append(output)
+                    st.session_state['past'].append(query_text)
+
+                if st.session_state['generated']:
+                    with response_container:
+                        for i in range(len(st.session_state['generated'])):
+                            streamlit_chat.message(st.session_state["past"][i], is_user=True, key=str(i) + '_user')
+                            streamlit_chat.message(st.session_state["generated"][i], key=str(i))
+
+                        chat_history = convert_chat_history_to_csv(past = st.session_state["past"], generated = st.session_state["generated"])
+
+                        st.download_button('Download chat history', chat_history, 'chat_history.csv')
 
 
-            with col2:
-                query_text = st.text_area("You:", key='input', height=100)
-                with st.form(key='my_form_2', clear_on_submit=True):
-                    submitted_query = st.form_submit_button('Send', disabled=not(query_text and st.session_state['agent']))
-
-            response_container = st.container()
-
-            if create_agent and openai_api_key.startswith('sk-') and not st.session_state['agent']:
-                with st.spinner('Retrieving vector stores and initializing agent...'):
-                    collection_names = [document["collection name"] for document in selected_documents]
-                    descriptions = [document["description"] for document in selected_documents]
-
-                    vector_databases = backend.initialize_vector_databases(collection_names = collection_names,
-                                                                           fetch_k = fetch_k)
-                    
-                    QA_chains, llm = backend.load_retrieval_QA_chains(openai_api_key = openai_api_key,
-                                                                      temperature = temperature,
-                                                                      retrievers=vector_databases)
-                    
-                    agent = backend.initialize_conversational_react_agent(collection_names = collection_names,
-                                                                         descriptions = descriptions,
-                                                                         chains = QA_chains,
-                                                                         llm = llm)
-
-                    st.session_state['agent'] = agent
-
-                    print(st.session_state['agent'].agent.llm_chain.prompt.template)
-            
-            if submitted_query:
-                output = st.session_state['agent']({"input":query_text})["output"]
-                st.session_state['generated'].append(output)
-                st.session_state['past'].append(query_text)
-
-            if st.session_state['generated']:
-                with response_container:
-                    for i in range(len(st.session_state['generated'])):
-                        streamlit_chat.message(st.session_state["past"][i], is_user=True, key=str(i) + '_user')
-                        streamlit_chat.message(st.session_state["generated"][i], key=str(i))
 
             if delete_document:
                 collection_names_to_delete = [document["collection name"] for document in selected_documents]
