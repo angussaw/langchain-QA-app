@@ -113,9 +113,8 @@ def main():
         uploaded_file = st.file_uploader('Upload a PDF file', type='pdf')
         collection_name = st.text_input("Provide article's name", help = tooltips["collection_name"])
         description = st.text_input("Provide article's description", help = tooltips["description"])
-        split = st.selectbox('Select splitter', ('CharacterTextSplitter', 'RecursiveCharacterTextSplitter'))
         chunk_size = st.slider('Select chunk size', 100, 1000, 500, help = tooltips["chunk_size"])
-        chunk_overlap = st.slider('Select chunk overlap', 50, 500, 250, help = tooltips["chunk_overlap"])
+        chunk_overlap = st.slider('Select chunk overlap', 0, 500, 250, help = tooltips["chunk_overlap"])
 
         with st.form('myform', clear_on_submit=True):
             submitted_pdf = st.form_submit_button('Load PDF', disabled=not(uploaded_file))
@@ -123,8 +122,7 @@ def main():
     if submitted_pdf:
         generated_dbs = st.session_state["generated_dbs"]
         split_params = {"chunk_size": chunk_size,
-                        "chunk_overlap": chunk_overlap,
-                        "split": split}
+                        "chunk_overlap": chunk_overlap}
         
         messages = validate_load_PDF(generated_dbs = generated_dbs,
                                      new_collection_name = collection_name,
@@ -183,12 +181,15 @@ def main():
                             st.write("Agent successfully initialized with the following document(s):")
                             for document in st.session_state["docs_selected"]:
                                 st.caption(f"- {document['filename']}.pdf")
+
                             st.divider()
                             st.write("Chat with selected document(s) in the conversation tab!")
 
+                            # st.divider()
+                            # st.write(st.session_state['agent'].agent.llm_chain.prompt.template)
+
                 if create_agent and openai_api_key.startswith('sk-') and not st.session_state['agent']:
                     with st.spinner('Retrieving vector stores and initializing agent...'):
-                        # filenames = [document["filename"] for document in selected_documents]
                         collection_names = [document["collection name"] for document in selected_documents]
                         descriptions = [document["description"] for document in selected_documents]
 
@@ -220,6 +221,7 @@ def main():
                     response_container.caption("Chat history")
 
                 if submitted_query:
+                    
                     output = st.session_state['agent']({"input":query_text})["output"]
                     st.session_state['generated'].append(output)
                     st.session_state['past'].append(query_text)

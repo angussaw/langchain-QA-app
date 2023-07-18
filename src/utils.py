@@ -6,8 +6,8 @@ from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTex
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
-from langchain.llms import GPT4All, OpenAI
-from langchain.chains import ConversationChain, RetrievalQA
+from langchain.llms import OpenAI, OpenAIChat
+from langchain.chains import  RetrievalQA
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chains import RetrievalQA
 
@@ -20,8 +20,7 @@ import shutil
 
 def load_and_split_doc(filename: str, 
                        chunk_size: int, 
-                       chunk_overlap: int, 
-                       split: str = "CharacterTextSplitter"):
+                       chunk_overlap: int):
     """_summary_
 
     Args:
@@ -35,12 +34,8 @@ def load_and_split_doc(filename: str,
     loader = PyPDFLoader(filename)
     documents = loader.load()
 
-    if split == "CharacterTextSplitter":
-        text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap,
-                                              separator = " ", length_function = len) 
-    
-    elif split == "RecursiveCharacterTextSplitter":
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap) 
+    text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+                                            separator = " ", length_function = len) 
 
     documents = text_splitter.split_documents(documents)
 
@@ -78,7 +73,7 @@ def initialize_vector_databases(collection_names: str, fetch_k: int = 4, persist
     """
     vector_databases = []
 
-    embedding_function = HuggingFaceEmbeddings()
+    embedding_function = HuggingFaceEmbeddings() # sentence transformer (vector of 768 dimension)
 
     for collection_name in collection_names:
         database_search = Chroma(collection_name = collection_name,
@@ -105,12 +100,13 @@ def load_retrieval_QA_chains(openai_api_key: str, temperature: float, retrievers
     # "gpt-3.5-turbo" is the default model
     chains = []
 
-    llm = OpenAI(temperature = temperature, openai_api_key = openai_api_key)
+    llm = OpenAIChat(model = "gpt-3.5-turbo", temperature = temperature, openai_api_key = openai_api_key)
 
     for retriever in retrievers:
         chain = RetrievalQA.from_chain_type(llm = llm,
                                             chain_type = "stuff", # chain_type: specifying how the RetrievalQA should pass the chunks into LLM
                                             retriever = retriever)
+        
         chains.append(chain)
 
     return chains, llm
@@ -143,6 +139,7 @@ def load_PDF(uploaded_file, collection_name: str, description: str, split_params
     create_and_persist_vector_database(documents = documents,
                                        collection_name = collection_name)
 
+    description = description + " Input should be a fully formed question."
     metadata = {"filename": filename,
                 "collection name": collection_name,
                 "description": description,
@@ -206,7 +203,7 @@ def initialize_conversational_react_agent(collection_names: list, descriptions: 
         AgentExecutor: _description_
     """
     tools = []
-    PREFIX = """You are an expert career coach, good at reviewing resumes."""
+    # PREFIX = """You are an expert career coach, good at reviewing resumes."""
 
     for i in range(len(chains)):
 
@@ -221,8 +218,8 @@ def initialize_conversational_react_agent(collection_names: list, descriptions: 
 
     agent = initialize_agent(tools, llm, 
                              agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, 
-                             verbose=True, memory=memory,
-                                 agent_kwargs={'prefix':PREFIX})
+                             verbose=True, memory=memory)
+                            #  agent_kwargs={'prefix':PREFIX})
         # 'format_instructions':FORMAT_INSTRUCTIONS,
         # 'suffix':SUFFIX
 
