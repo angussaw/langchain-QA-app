@@ -2,17 +2,12 @@
 
 import os
 from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
-from langchain.llms import OpenAI, OpenAIChat
 from langchain.chains import  RetrievalQA
-from langchain.chains.question_answering import load_qa_chain
-from langchain.chains import RetrievalQA
-
-from langchain.agents import initialize_agent, Tool, AgentExecutor
-from langchain.agents import AgentType
+from langchain.chat_models import ChatOpenAI
+from langchain.agents import initialize_agent, Tool, AgentExecutor, AgentType
 from langchain.memory import ConversationBufferMemory
 
 from tempfile import NamedTemporaryFile
@@ -97,13 +92,13 @@ def load_retrieval_QA_chains(openai_api_key: str, temperature: float, retrievers
     Returns:
         tuple: _description_
     """
-    # "gpt-3.5-turbo" is the default model
+    
     chains = []
 
-    llm = OpenAIChat(model = "gpt-3.5-turbo", temperature = temperature, openai_api_key = openai_api_key)
+    llm = ChatOpenAI(model = "gpt-3.5-turbo", temperature = temperature, openai_api_key = openai_api_key) # gpt-3.5-turbo is the default chat model
 
     for retriever in retrievers:
-        chain = RetrievalQA.from_chain_type(llm = llm,
+        chain = RetrievalQA.from_chain_type(llm = llm, # gpt-3.5-turbo
                                             chain_type = "stuff", # chain_type: specifying how the RetrievalQA should pass the chunks into LLM
                                             retriever = retriever)
         
@@ -159,7 +154,7 @@ def remove_vector_databases(collection_names: list, persist_directory: str = "ch
         shutil.rmtree(f"{persist_directory}/{collection_name}")
 
 
-def initialize_zeroshot_react_agent(collection_names: list, descriptions: list, chains: list, llm: OpenAI) -> AgentExecutor:
+def initialize_zeroshot_react_agent(collection_names: list, descriptions: list, chains: list, llm: ChatOpenAI) -> AgentExecutor:
     """_summary_
 
     Args:
@@ -190,7 +185,7 @@ def initialize_zeroshot_react_agent(collection_names: list, descriptions: list, 
 
     return agent
 
-def initialize_conversational_react_agent(collection_names: list, descriptions: list, chains: list, llm: OpenAI) -> AgentExecutor:
+def initialize_conversational_react_agent(collection_names: list, descriptions: list, chains: list, llm: ChatOpenAI) -> AgentExecutor:
     """_summary_
 
     Args:
@@ -214,11 +209,11 @@ def initialize_conversational_react_agent(collection_names: list, descriptions: 
         
         tools.append(tool)
 
-    memory = ConversationBufferMemory(memory_key="chat_history")
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
     agent = initialize_agent(tools, llm, 
-                             agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, 
-                             verbose=True, memory=memory)
+                             agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, 
+                             verbose=True, memory=memory, handle_parsing_errors=True)
                             #  agent_kwargs={'prefix':PREFIX})
         # 'format_instructions':FORMAT_INSTRUCTIONS,
         # 'suffix':SUFFIX

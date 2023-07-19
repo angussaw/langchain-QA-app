@@ -185,9 +185,6 @@ def main():
                             st.divider()
                             st.write("Chat with selected document(s) in the conversation tab!")
 
-                            # st.divider()
-                            # st.write(st.session_state['agent'].agent.llm_chain.prompt.template)
-
                 if create_agent and openai_api_key.startswith('sk-') and not st.session_state['agent']:
                     with st.spinner('Retrieving vector stores and initializing agent...'):
                         collection_names = [document["collection name"] for document in selected_documents]
@@ -218,7 +215,7 @@ def main():
                         submitted_query = st.form_submit_button('Send', disabled=not(query_text and st.session_state['agent']))
                 with col2:
                     response_container = st.container()
-                    response_container.caption("Chat history")
+                    response_container.caption("Chat history (showing last 3 responses)")
 
                 if submitted_query:
                     
@@ -228,9 +225,11 @@ def main():
 
                 if st.session_state['generated']:
                     with response_container:
-                        for i in range(len(st.session_state['generated'])):
-                            streamlit_chat.message(st.session_state["past"][i], is_user=True, key=str(i) + '_user')
-                            streamlit_chat.message(st.session_state["generated"][i], key=str(i))
+                        prev_n_messages = st.session_state['generated'][-3:]
+                        prev_n_queries = st.session_state['past'][-3:]
+                        for i in range(len(prev_n_messages)):
+                            streamlit_chat.message(prev_n_queries[i], is_user=True, key=str(i) + '_user')
+                            streamlit_chat.message(prev_n_messages[i], key=str(i))
 
                         chat_history = convert_chat_history_to_csv(past = st.session_state["past"], generated = st.session_state["generated"])
 
