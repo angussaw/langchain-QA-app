@@ -1,3 +1,4 @@
 # Ignore everything in the following folders
 chroma_db/**
-llm/**
+models/**
+

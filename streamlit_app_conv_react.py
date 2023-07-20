@@ -1,7 +1,7 @@
 """Python file to serve as the frontend"""
 import os
 import streamlit as st
-import utils as backend
+import src.utils as backend
 from tempfile import NamedTemporaryFile
 import pandas as pd
 import json

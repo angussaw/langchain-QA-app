@@ -1,6 +1,7 @@
 """Python file to serve as the backend"""
 
 import os
+from langchain import PromptTemplate
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
@@ -10,8 +11,14 @@ from langchain.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentExecutor, AgentType
 from langchain.memory import ConversationBufferMemory
 
+from src.prompts import qa_template
 from tempfile import NamedTemporaryFile
 import shutil
+import yaml
+
+# Import config vars
+with open("config/config.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
 def load_and_split_doc(filename: str, 
                        chunk_size: int, 
@@ -37,13 +44,12 @@ def load_and_split_doc(filename: str,
     return documents
 
 
-def create_and_persist_vector_database(documents, collection_name: str, persist_directory: str = "chroma_db"):
+def create_and_persist_vector_database(documents, collection_name: str):
     """_summary_
 
     Args:
         documents (_type_): _description_
         collection_name (str): _description_
-        persist_directory (str, optional): _description_. Defaults to "chroma_db".
     """
 
     embedding_function = HuggingFaceEmbeddings()
@@ -51,17 +57,16 @@ def create_and_persist_vector_database(documents, collection_name: str, persist_
     database = Chroma.from_documents(documents,
                                         embedding = embedding_function,
                                         collection_name = collection_name,
-                                        persist_directory = f"{persist_directory}/{collection_name}")
+                                        persist_directory = f"{config['DB_CHROMA_PATH']}/{collection_name}")
     database.persist()
 
 
-def initialize_vector_databases(collection_names: str, fetch_k: int = 4, persist_directory: str = "chroma_db") -> list:
+def initialize_vector_databases(collection_names: str, fetch_k: int = 4) -> list:
     """_summary_
 
     Args:
         collection_names (str): _description_
         fetch_k (int, optional): _description_. Defaults to 4.
-        persist_directory (str, optional): _description_. Defaults to "chroma_db".
 
     Returns:
         list: _description_
@@ -72,7 +77,7 @@ def initialize_vector_databases(collection_names: str, fetch_k: int = 4, persist
 
     for collection_name in collection_names:
         database_search = Chroma(collection_name = collection_name,
-                                persist_directory=f"{persist_directory}/{collection_name}", 
+                                persist_directory=f"{config['DB_CHROMA_PATH']}/{collection_name}", 
                                 embedding_function=embedding_function).as_retriever(search_type="similarity", 
                                                                                     search_kwargs={"k":fetch_k})
         
@@ -95,13 +100,17 @@ def load_retrieval_QA_chains(openai_api_key: str, temperature: float, retrievers
     
     chains = []
 
+    prompt = PromptTemplate(template=qa_template,
+                            input_variables=['context', 'question'])
+
     llm = ChatOpenAI(model = "gpt-3.5-turbo", temperature = temperature, openai_api_key = openai_api_key) # gpt-3.5-turbo is the default chat model
 
     for retriever in retrievers:
         chain = RetrievalQA.from_chain_type(llm = llm, # gpt-3.5-turbo
                                             chain_type = "stuff", # chain_type: specifying how the RetrievalQA should pass the chunks into LLM
-                                            retriever = retriever)
-        
+                                            retriever = retriever,
+                                            chain_type_kwargs={'prompt': prompt})
+
         chains.append(chain)
 
     return chains, llm
@@ -143,47 +152,15 @@ def load_PDF(uploaded_file, collection_name: str, description: str, split_params
     return metadata
 
 
-def remove_vector_databases(collection_names: list, persist_directory: str = "chroma_db"):
+def remove_vector_databases(collection_names: list):
     """_summary_
 
     Args:
         collection_names (list): _description_
-        persist_directory (str, optional): _description_. Defaults to "chroma_db".
     """
     for collection_name in collection_names:
-        shutil.rmtree(f"{persist_directory}/{collection_name}")
+        shutil.rmtree(f"{config['DB_CHROMA_PATH']}/{collection_name}")
 
-
-def initialize_zeroshot_react_agent(collection_names: list, descriptions: list, chains: list, llm: ChatOpenAI) -> AgentExecutor:
-    """_summary_
-
-    Args:
-        collection_names (list): _description_
-        descriptions (list): _description_
-        chains (list): _description_
-        llm (OpenAI): _description_
-
-    Returns:
-        AgentExecutor: _description_
-    """
-    tools = []
-
-    for i in range(len(chains)):
-
-        tool = Tool(name=collection_names[i],
-                    func=chains[i].run,
-                    description=descriptions[i],
-                    return_direct=True)
-        
-        tools.append(tool)
-
-    agent = initialize_agent(tools,
-                             llm,
-                             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                             verbose=True,
-                             return_intermediate_steps=True)
-
-    return agent
 
 def initialize_conversational_react_agent(collection_names: list, descriptions: list, chains: list, llm: ChatOpenAI) -> AgentExecutor:
     """_summary_

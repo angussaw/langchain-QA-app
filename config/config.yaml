@@ -1,0 +1,3 @@
+DB_CHROMA_PATH: 'chroma_db'
+LLAMA_MODEL_BIN_PATH: 'models/llama-2-7b-chat.ggmlv3.q8_0.bin'
+OPENAI_MODEL: 'gpt-3.5-turbo'
