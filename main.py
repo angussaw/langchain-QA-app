@@ -127,7 +127,7 @@ def main():
     gb.configure_selection(selection_mode="multiple", use_checkbox=True)
     gb_grid_options = gb.build()
     st.caption("Select loaded PDF file(s) to converse with:")
-    response = AgGrid(generated_db_df.head(5),gridOptions = gb_grid_options, use_checkbox=True)
+    response = AgGrid(generated_db_df.head(5), gridOptions = gb_grid_options, use_checkbox=True)
 
     #########################################################################
     ###### Sidebar to load/split PDF files and store vector embeddings ######

@@ -9,7 +9,7 @@ from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain import PromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import Chroma
 
 import shutil
@@ -63,7 +63,7 @@ def load_and_split_doc(filename: str,
                        chunk_size: int, 
                        chunk_overlap: int) -> list:
     """Function to split the loaded PDF file into separate smaller chunks of text
-    using a RecursiveCharacterTextSplitter object
+    using a CharacterTextSplitter object
 
     Args:
         filename (str): String containing the name of the file
@@ -76,7 +76,7 @@ def load_and_split_doc(filename: str,
     loader = PyPDFLoader(filename)
     documents = loader.load()
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+    text_splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap,
                                                    separator = " ") 
 
     documents = text_splitter.split_documents(documents)
