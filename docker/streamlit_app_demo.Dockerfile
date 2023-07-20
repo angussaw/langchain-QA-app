@@ -12,8 +12,10 @@ USER $USER
 COPY --chown=$ID:$ID $REQUIREMENTS_TXT .
 RUN pip3 install -r $REQUIREMENTS_TXT
 
+COPY --chown=$ID:$ID main.py main.py
 COPY --chown=$ID:$ID src/ src/
 COPY --chown=$ID:$ID chroma_db/ chroma_db/
+COPY --chown=$ID:$ID config/ config/
 
 EXPOSE 8501
 
