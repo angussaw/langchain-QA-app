@@ -17,4 +17,4 @@ COPY --chown=$ID:$ID chroma_db/ chroma_db/
 
 EXPOSE 8501
 
-ENTRYPOINT ["python", "-m", "streamlit", "run", "src/streamlit_app_demo.py"]
+ENTRYPOINT ["python", "-m", "streamlit", "run", "main.py"]

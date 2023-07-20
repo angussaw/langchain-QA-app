@@ -1,23 +1,30 @@
 """Python file to serve as the frontend"""
-import os
-import streamlit as st
-import src.utils as backend
-from tempfile import NamedTemporaryFile
-import pandas as pd
-import json
-from st_aggrid import AgGrid, GridOptionsBuilder
-import streamlit_chat
 
-def validate_load_PDF(generated_dbs, new_collection_name: str, split_params: dict):
-    """_summary_
+import json
+import os
+import pandas as pd
+import src.utils as backend
+from st_aggrid import AgGrid, GridOptionsBuilder
+import streamlit as st
+import streamlit_chat
+import yaml
+
+# Import config vars
+with open("config/config.yaml", "r") as file:
+    config = yaml.safe_load(file)
+
+config = config["streamlit"]
+
+def validate_load_PDF(generated_dbs: list, new_collection_name: str, split_params: dict) -> list:
+    """Function to ensure that PDF file can be loaded and split successfully
 
     Args:
-        generated_dbs (_type_): _description_
-        new_collection_name (str): _description_
-        split_params (dict): _description_
+        generated_dbs (list): List containing vector databases that already exist locally
+        new_collection_name (str): String containing the unique identifier of the new Chroma vector database
+        split_params (dict): Configuration parameters for splitting the PDF file into separate chunks
 
     Returns:
-        _type_: _description_
+        list: List of error messages that flag out any issues with the settings to load and split PDF file
     """
     messages = []
 
@@ -32,8 +39,16 @@ def validate_load_PDF(generated_dbs, new_collection_name: str, split_params: dic
     return messages
 
 @st.cache_data
-def convert_chat_history_to_csv(past, generated):
-    # IMPORTANT: Cache the conversion to prevent computation on every rerun
+def convert_chat_history_to_csv(past: list, generated: list) -> str:
+    """Function to cache the conversation to prevent computation on every rerun
+
+    Args:
+        past (list): List containing all past queries from the user
+        generated (list): List containing all past responses from language model
+
+    Returns:
+        str: Resulting csv format as a string
+    """
     chat_history_df = pd.DataFrame()
     chat_history_df["User"] = past
     chat_history_df["Response"] = generated
@@ -43,6 +58,13 @@ def convert_chat_history_to_csv(past, generated):
 
 def main():
     """
+    Main function to run PDF question-answering conversation app:
+        - Uploading a new PDF file to split it into smaller chunks of text
+        - Converting smaller chunks of text to vector embeddings and storing them in local vector databases 
+        - Managing of PDF files that are loaded and ready to be queried
+        - Setting up of conversation agent by specifying genative configuration
+        - Chat with multiple PDF files at once via an agent fetching the correct documents based on question
+        - Saving chat history for refrence and evaluation
     """
 
     hide_default_format = """
@@ -58,17 +80,7 @@ def main():
         </style>
         """
 
-    tooltips = {"chunk_size": "Maximum number of characters that a chunk can contain",
-                "chunk_overlap": "Number of characters that should overlap between two adjacent chunks",
-                "collection_name": "A short title of the article that acts as a unique identifier for each Chroma vector database of a PDF file. \n \
-                                    Refer to https://docs.trychroma.com/usage-guide#creating-inspecting-and-deleting-collections \
-                                    for restrictions on Chroma collection names",
-                "description": "A short description of the article and its contents. Recommended to include what the article is useful for.",
-                "temperature": "A scaling factor that is applied within the final softmax layer that influences the shape \
-                                of the probability distribution that the model calculates for the next token. \n \
-                                The higher the value, the greater the randomness (vice versa)",
-                "select_k_documents": "Number of chunks to be selected as context in the prompt to the LLM"
-                }
+    tooltips = config["TOOLTIPS"]
 
     # From here down is all the StreamLit UI.
     st.set_page_config(page_title="Document conversation app",
@@ -80,6 +92,10 @@ def main():
     st.caption("2. Select document(s) to converse with and enter OpenAI API key along with response parameters to generate conversation agent")
     st.caption("3. Converse with your document(s) by entering your question!")
     st.divider()
+
+    ##########################################
+    ###### Setting up session variables ######
+    ##########################################
 
     if 'generated' not in st.session_state:
         st.session_state['generated'] = []
@@ -101,13 +117,21 @@ def main():
                 with open(f"{path}/metadata.json") as metadata_json:
                     metadata = json.load(metadata_json)
                 st.session_state["generated_dbs"].append(metadata)
-                
-        generated_db_df = pd.DataFrame(st.session_state["generated_dbs"])
-        gb = GridOptionsBuilder.from_dataframe(generated_db_df)
-        gb.configure_selection(selection_mode="multiple", use_checkbox=True)
-        gb_grid_options = gb.build()
-        st.caption("Select loaded PDF file(s) to converse with:")
-        response = AgGrid(generated_db_df.head(5),gridOptions = gb_grid_options, use_checkbox=True)
+
+    ###########################################################
+    ###### Populating AgGrid showcasing loaded PDF files ######
+    ###########################################################
+
+    generated_db_df = pd.DataFrame(st.session_state["generated_dbs"])
+    gb = GridOptionsBuilder.from_dataframe(generated_db_df)
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+    gb_grid_options = gb.build()
+    st.caption("Select loaded PDF file(s) to converse with:")
+    response = AgGrid(generated_db_df.head(5),gridOptions = gb_grid_options, use_checkbox=True)
+
+    #########################################################################
+    ###### Sidebar to load/split PDF files and store vector embeddings ######
+    #########################################################################
 
     with st.sidebar:
         uploaded_file = st.file_uploader('Upload a PDF file', type='pdf')
@@ -148,7 +172,9 @@ def main():
                     st.write("PDF was loaded successfully")
                     st.experimental_rerun()
 
-
+    #################################################
+    ###### Selected PDF files to converse with ######
+    #################################################
 
     if st.session_state["generated_dbs"] != []:
         selected_documents = response['selected_rows']
@@ -164,6 +190,11 @@ def main():
                 st.session_state['past'] = []
 
             agent_tab, conv_tab = st.tabs(["Agent settings", "Chat conversation"])
+
+            ################################################
+            ###### Setting up chat conversation agent ######
+            ################################################
+
             with agent_tab:
                 col1, col2 = st.columns(2, gap="large")
                 with col1:
@@ -191,19 +222,23 @@ def main():
                         descriptions = [document["description"] for document in selected_documents]
 
                         vector_databases = backend.initialize_vector_databases(collection_names = collection_names,
-                                                                            fetch_k = fetch_k)
+                                                                               fetch_k = fetch_k)
                         
                         QA_chains, llm = backend.load_retrieval_QA_chains(openai_api_key = openai_api_key,
-                                                                        temperature = temperature,
-                                                                        retrievers=vector_databases)
+                                                                          temperature = temperature,
+                                                                          retrievers=vector_databases)
                         
-                        agent = backend.initialize_conversational_react_agent(collection_names = collection_names,
-                                                                            descriptions = descriptions,
-                                                                            chains = QA_chains,
-                                                                            llm = llm)
+                        agent = backend.initialize_conversational_react_agent(tool_names = collection_names,
+                                                                              tool_descriptions = descriptions,
+                                                                              chains = QA_chains,
+                                                                              llm = llm)
 
                         st.session_state['agent'] = agent
                         st.experimental_rerun()
+
+            #####################################################################
+            ###### Displaying chat history and input area to ask questions ######
+            #####################################################################
 
             with conv_tab:
                 col1, col2 = st.columns([6, 12], gap="large")
@@ -225,8 +260,8 @@ def main():
 
                 if st.session_state['generated']:
                     with response_container:
-                        prev_n_messages = st.session_state['generated'][-3:]
-                        prev_n_queries = st.session_state['past'][-3:]
+                        prev_n_messages = st.session_state['generated'][-config["LAST_N_RESPONSES"]:]
+                        prev_n_queries = st.session_state['past'][-config["LAST_N_RESPONSES"]:]
                         for i in range(len(prev_n_messages)):
                             streamlit_chat.message(prev_n_queries[i], is_user=True, key=str(i) + '_user')
                             streamlit_chat.message(prev_n_messages[i], key=str(i))
@@ -235,7 +270,9 @@ def main():
 
                         st.download_button('Download chat history', chat_history, 'chat_history.csv')
 
-
+            #########################################################
+            ###### Deleting loaded PDF files from vector store ######
+            #########################################################
 
             if delete_document:
                 collection_names_to_delete = [document["collection name"] for document in selected_documents]
