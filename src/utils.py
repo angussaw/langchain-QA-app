@@ -11,6 +11,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain import PromptTemplate
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import Chroma
+from sqlalchemy import create_engine, MetaData, Table, Column, String, Numeric
 
 import shutil
 from src.prompts import qa_template
@@ -182,6 +183,16 @@ def initialize_conversational_react_agent(tool_names: list, tool_descriptions: l
         
         tools.append(tool)
 
+    sql_tool = Tool(name="Insert values into SQL database",
+                func=parsing_name_number,
+                description="Use this tool when you need to insert a name and phone number into a database. \
+                    The input to this tool should be a comma separated list of strings of length two, representing the name and the phone number you would like to insert into the database. \
+                    For example, `John,91827364` would be the input if you wanted to insert the name John and the phone number 91827364\
+                    If only `John` is provided, only insert the name John\
+                    If only `91827364` is provided, only insert the phone number 91827364")
+
+    tools.append(sql_tool)
+
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
     agent = initialize_agent(tools, llm, 
@@ -202,3 +213,42 @@ def remove_vector_databases(collection_names: list):
     """
     for collection_name in collection_names:
         shutil.rmtree(f"{config['DB_CHROMA_PATH']}/{collection_name}")
+
+
+def insert_sql_table(name=None, phone_number=None):
+
+    username = "postgres" 
+    password = "postgres" 
+    host = "localhost" 
+    port = "5433"
+    mydatabase = "test"
+
+    pg_uri = f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{mydatabase}"
+    table_name = "guests"
+    # check for the values we have been given
+    if name and phone_number:
+        engine = create_engine(pg_uri)
+        metadata = MetaData()
+        table = Table(table_name, metadata,
+                        Column("name", String),
+                        Column("number", Numeric)
+                    )
+
+        ins = table.insert().values(
+            name=name,
+            number=phone_number
+        )
+        with engine.connect() as connection:
+            connection.execute(ins)
+
+        return f"Inserted name: {name} number: {phone_number}"
+
+    else:
+        return "Could not insert into database. Need name AND phone number."
+
+def parsing_name_number(string):
+    try:
+        name, number = string.split(",")
+        return insert_sql_table(name = name, phone_number=int(number))
+    except:
+        return insert_sql_table(name=string, phone_number=None)
